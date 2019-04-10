@@ -1,0 +1,430 @@
+#include "stdafx.h"
+#include "stdio.h"
+#include "stdlib.h"
+#include "Node.h"
+#include "time.h"
+#pragma warning (disable : 4996)
+
+//costanti
+#define fileI "inputmatrix3000.txt"
+#define fileO "g30s3.txt"
+#define fileM "g30s3media.txt"
+#define fileL "g30s3log.txt"
+#define itera 10 //itera n volte per ogni probabilita'
+
+//costanti output
+#define showMatrix false //mostra matrice adiacenze FALSE
+#define showListPerNode false //mostra lista nodi con i prori adiacenti
+#define showDegree false //mostra numero di nodi per ogni grado
+#define showDegreeStat true //mostra percentuali nodi 1 <>3
+#define showSimulation true //mostra risultato simulazione TRUE
+#define showMedia false //mostra media
+#define outputLog true //mostra media
+#define output true //scrive output su file
+#define outputMedia true //scrive media su file
+#define mag true
+
+//funzioni
+int inizializzaMatrice();
+int inizializzaGrafo(int);
+int inserisciParametri();
+int simula();
+int conteggio();
+int media();
+int log(int);
+
+//variabili
+int prob = 50; //probabilita' in centesimi [0:impossibile/99:certo]
+FILE *filei, *fileo, *filem,*filel;
+int dimension;
+bool **matrix;
+Node **graph;
+int strategy, source,gradeS;
+int nill, nsane, ndeac,LCC,groupcount;
+
+//variabili di servizio
+int i, j, k, t,count,w;
+char tmpc;
+bool cycle;
+
+
+//corpo
+int main()
+{
+	printf("INIZIO\nITERA=%d, INPUT: %s OUTPUT: %s OUTPUT M: %s OUTPUT L: %s\n",itera,fileI,fileO,fileM,fileL);
+
+	inizializzaMatrice();
+	
+	printf("CREAZIONE GRAFO\n");
+	inizializzaGrafo(1);
+
+	inserisciParametri();
+	
+	if (output) 
+		if ((fileo = fopen(fileO, "w")) == NULL) 
+			printf("FILE APERTO NON CORRETTAMENTE\n");
+
+	if (outputLog)
+		if ((filel = fopen(fileL, "w")) == NULL)
+			printf("FILE APERTO NON CORRETTAMENTE\n");
+		
+	if(!showSimulation) printf("SIMULAZIONE IN CORSO\n");
+	for (prob = 0; prob <= 99; prob++) {
+		for (k = 0; k < itera; k++) {
+
+			inizializzaGrafo(0);
+
+			simula();
+
+			conteggio();
+
+			if(outputLog) log(prob);
+
+			for (i = 0; i < dimension; i++)
+				free(graph[i]);
+			free(graph);
+		}
+		if(!showSimulation) 
+			if (prob%10 == 0)
+				printf(". ");
+	}
+	printf("\n");
+
+	if (output) fclose(fileo);
+	if (outputLog) fclose(filel);
+	
+	if (!showMedia) printf("CALCOLO MEDIA\n");
+	media();
+
+
+	printf("TERMINATE CON SUCCESSO %d SIMULAZIONI\n",itera*100);
+
+	getc(stdin); getc(stdin);
+
+    return 0;
+}
+
+//funzioni
+int inizializzaMatrice() {
+	//apertura file
+	filei = fopen(fileI, "r");
+	fscanf(filei, "%d", &dimension);
+	printf("DIMENSIONE MATRICE: %d\n", dimension);
+	printf("ACQUISIZIONE MATRICE\n");
+	//scrittura matrice
+	matrix = (bool**)malloc(dimension * sizeof(bool*));
+	for (i = 0; i < dimension; i++) {
+		matrix[i] = (bool*)malloc(dimension * sizeof(bool));
+	}
+	int print=dimension*dimension/11, printa=0;
+	i = 0;
+	j = 0;
+	cycle = true;
+	while (cycle) {
+
+		fscanf(filei, "%c", &tmpc);
+		if (tmpc == '1') {
+			matrix[i][j] = true;
+			if(showMatrix) printf("1 ");
+			j++;
+			if (j == dimension) {
+				j = 0;
+				i++;
+				if (showMatrix) printf("\n");
+			}
+			if (i == dimension) {
+				cycle = false;	
+			}
+			printa++;
+			if (!showMatrix) {
+				if (printa == print) {
+					printa = 0;
+					printf(". ");
+				}
+			}
+		}
+		if (tmpc == '0') {
+			matrix[i][j] = false;
+			if (showMatrix) printf("0 ");
+			j++;
+			if (j == dimension) {
+				j = 0;
+				i++;
+				if (showMatrix) printf("\n");
+			}
+			if (i == dimension) {
+				cycle = false;
+			}
+			printa++;
+			if (!showMatrix) {
+				if (printa == print) {
+					printa = 0;
+					printf(". ");
+				}
+			}
+		}
+		
+	}
+	if (!showMatrix) printf("\n");
+	fclose(filei);
+	return 0;
+}
+
+int inizializzaGrafo(int out) {
+	graph = (Node**)malloc(dimension * sizeof(Node*));
+	bool flag;
+	for (i = 0; i < dimension; i++) {
+		graph[i] = new Node(i, dimension);
+	}
+	if (out && showListPerNode) printf("LISTE ADIACENZE:\n");
+	for (i = 0; i < dimension; i++) {
+		if (out && showListPerNode) printf("NODO %d: ", i);
+		flag = false;
+		for (j = 0; j < dimension; j++) {
+			if (matrix[i][j]) {
+				if (out&&showListPerNode) printf("%d ", j);
+				graph[i]->addNode(graph[j]->getName());
+				flag = true;
+			}
+		}
+		if (flag == false)
+			printf("ATTENZIONE NODO SCONNESSO\n");
+		else {
+			if (out&&showListPerNode) printf("\n");
+		}
+	}
+	if (out==1) {
+		int grado1 = 0, gradoMAG3 = 0,gradoMIN3=0,gradoMAG15=0;
+		if(showDegree) printf("GRADI:\n");
+		bool* tmp = (bool*)malloc(dimension * sizeof(bool));
+		for (i = 0; i < dimension; i++)
+			tmp[i] = true;
+		for (i = 0; i < dimension; i++) {
+			if (tmp[i]) {
+				count = 0;
+				for (j = i; j < dimension; j++) {
+					if (graph[j]->getGrade() == graph[i]->getGrade()) {
+						count++;
+						tmp[j] = false;
+					}
+				}
+				if (showDegree) printf("%4d NODI DI GRADO %2d\n", count, graph[i]->getGrade());
+				if (graph[i]->getGrade() > 3) {
+					gradoMAG3+=count;
+					if (graph[i]->getGrade() > 15)
+						gradoMAG15 += count;
+				}
+				else {
+					if (graph[i]->getGrade() == 1) {
+						gradoMIN3 += count;
+						grado1 += count;
+					}
+					else
+						gradoMIN3 += count;
+				}
+
+			}
+		}
+		if(showDegreeStat) printf("%d NODI DI GRADO MAGGIORE DI 15 (%.3f percento)\n%d NODI DI GRADO MAGGIORE DI 3 (%.3f percento)\n%d NODI DI GRADO MINORE DI 3 (%.3f percento) DI CUI\n%d NODI DI GRADO 1 (%.3f percento)\n",gradoMAG15,(float) (gradoMAG15 * 100) / dimension,gradoMAG3, (float) (gradoMAG3 *100)/dimension,gradoMIN3, (float)(gradoMIN3 * 100) / dimension,grado1, (float)(grado1 * 100) / dimension);
+	}
+	return 0;
+}
+
+int inserisciParametri() {
+	printf("SELEZIONA GRADO DEL NODO: ");
+	if(mag) printf("(MAGGIORE O UGUALE) ");
+	cycle =true;
+	while (cycle) {
+		scanf("%d", &gradeS);
+		for (i = 0; i <dimension; i++) {
+			if (mag) {
+				if (graph[i]->getGrade() >= gradeS)
+					cycle = false;
+			}
+			else
+				if (graph[i]->getGrade() == gradeS)
+					cycle = false;
+		}
+		if (cycle) {
+			if (mag) printf("NODO CON GRADO MAGGIORE O UGUALE %d NON TROVATO\nPROVA CON %d\n", gradeS, graph[rand() % dimension]->getGrade());
+			else printf("NODO CON GRADO %d NON TROVATO\nPROVA CON %d\n", gradeS, graph[rand() % dimension]->getGrade());
+		}
+		else {
+			if(mag) printf("GRADO MAGGIORE O UGUALE %d CONFERMATO\n", gradeS);
+			else printf("GRADO %d CONFERMATO\n", gradeS);
+		}
+	}
+	printf("SELEZIONA STRATEGIA:\n0: taglia archi\n1: autoDeactive\n2: deactiveNext\n3: deactiveNextNext\n");
+	cycle = true;
+	while (cycle) {
+		fscanf(stdin, "%d", &strategy);
+		if (strategy<4 && strategy>-1) {
+			cycle = false;
+		}
+	}
+	return 0;
+}
+
+int simula() {
+	t = 0;
+	w = rand() % dimension;
+	for (i = w; i < dimension+w; i++) {
+		if (mag) {
+			if (graph[i % dimension]->getGrade() >= gradeS) {
+				source = i % dimension;
+				break;
+			}
+		}
+		else {
+			if (graph[i % dimension]->getGrade() == gradeS) {
+				source = i % dimension;
+				break;
+			}
+		}
+	}
+	graph[source]->setState(-1);
+	cycle = true;
+	while (cycle) {
+		cycle = false;
+		for (i = 0; i < dimension; i++) {
+			if (graph[i]->getState() == -1) {
+				bool* tmpn1 = graph[i]->getNext();
+				for (j = 0; j < dimension; j++) {
+					if (tmpn1[j]) {
+						int tmp = rand() % 100;
+						if (tmp <= prob) {
+							graph[j]->setState(-2);
+						}
+						else {
+							switch (strategy)
+							{
+							case 0: { //tagia arco
+								graph[i]->cutNext(j);
+								graph[j]->cutNext(i);
+								break;
+							}
+							case 1: { //autokill
+								graph[j]->setState(1);
+								break;
+							}
+							case 2: {//kill next
+								graph[j]->setState(1);
+								bool* tmpn2 = graph[j]->getNext();
+								for (int w = 0; w < dimension; w++) {
+									if (tmpn2[w])
+										graph[w]->setState(1);
+								}
+								break;
+							}
+							case 3: {//kill next next
+								graph[j]->setState(1);
+								bool* tmpn2 = graph[j]->getNext();
+								for (int w = 0; w < dimension; w++) {
+									if (tmpn2[w]) {
+										graph[w]->setState(1);
+										bool* tmpn3 = graph[w]->getNext();
+										for (int h = 0; h < dimension; h++) {
+											if (tmpn3[h]) {
+												graph[h]->setState(1);
+											}
+										}
+									}
+								}
+								break;
+							}
+							}
+						}
+					}
+				}
+			}
+		}
+		for (i = 0; i < dimension; i++) {
+			if (graph[i]->getState() == -2) {
+				graph[i]->setState(-1);
+				cycle = true;
+			}
+		}
+		t++;
+	}
+	return 0;
+}
+
+void llcforest() {
+	
+}
+
+int conteggio() {
+	nill = 0; 
+	nsane = 0;
+	ndeac = 0;
+	LCC = 0;
+	groupcount = 0;
+	for (i = 0; i < dimension; i++) {
+		j = graph[i]->getState();
+		switch (j){
+			case 0:
+			{
+				nsane++;
+				break;
+			}
+			case -1:
+			{
+				nill++;
+				break;
+			}
+			case 1:
+			{
+				ndeac++;
+				break;
+			}
+		}
+	}
+
+	if(showSimulation) printf("P=%d, STEP %d: NODI SANI: %d, NODI INFETTI: %d", prob,t, nsane,nill);
+	if (showSimulation && strategy != 0)  
+		printf(", NODI SPENTI: %d\n", ndeac);
+	else {
+		if (showSimulation) printf("\n");
+	}
+	//PROB STEP SANE ILL DEAC
+	if(output) fprintf(fileo, "%d %d %d %d %d\n", prob, t, nsane, nill, ndeac);
+	return 0;
+}
+
+int media() {
+	fileo = fopen(fileO, "r");
+	if (outputMedia) filem = fopen(fileM, "w");
+	if (showMedia) printf("MEDIE PER %d SIMULAZIONI A PROBABILITA' COSTANTE\n",itera);
+	float step, sane, ill, deac;
+	int a, b, c, d;
+	for (i = 0; i < 100; i++) {
+		step = 0; sane = 0; ill = 0; deac = 0;
+		for (j = 0; j < itera; j++) {
+			fscanf(fileo, "%d %d %d %d %d", &i, &a, &b, &c, &d);	
+			step += a;
+			sane += b;
+			ill += c;
+			deac += d;
+		}
+		step = step / itera;
+		sane /= itera;
+		ill /= itera;
+		deac /= itera;
+		if (showMedia) printf("P=%d, STEP %.2f: NODI SANI: %.2f, NODI INFETTI: %.2f, NODI DEATTIVATI: %.2f\n", i,step , sane, ill,deac);
+		if (outputMedia) fprintf(filem, "%d %.2f %.2f %.2f %.2f\n", i, step, sane, ill, deac);
+	}
+	if(outputMedia) fclose(filem);
+	fclose(fileo);
+	return 0;
+}
+
+
+int log(int p) {
+	fprintf(filel, "(%d) ", p);
+	for (i = 0; i < dimension; i++) {
+		if (graph[i]->getState()==0)
+			fprintf(filel, "%d ", i);
+	}
+	fprintf(filel, "- ");
+	return 0;
+}
